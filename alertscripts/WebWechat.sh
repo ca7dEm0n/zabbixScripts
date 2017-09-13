@@ -13,9 +13,9 @@ CONFIG=/usr/local/zabbix/etc/zabbix_server.conf
 DBNAME=$(grep -v "^#" ${CONFIG} |grep DBName|sed "s/DBName=//g")
 DBPASSWD=$(grep -v "^#" ${CONFIG} |grep DBPassword|sed "s/DBPassword=//g")
 SQL=$(printf "mysql --user=%s -p%s" ${DBNAME} ${DBPASSWD})
-NowTime=$(date +%s)
 
 # 设置间隔
+NowTime=$(date +%s)
 LastTime=$(expr $NowTime - 86400)
 
 # 格式化传入文本
@@ -25,15 +25,11 @@ ItemID=$(echo $3 |awk -F "|" '{print $2}')
 TriggerURL=$(echo $3 |awk -F "|" '{print $3}')
 TriggerStatus=$(echo $3 |awk -F "|" '{print $4}')     
 
-
-# 缓存文件，默认读取缓存文件
 CACHEFILE='/tmp/'${ItemID}
-
 
 function printTime() {
     date -d @$1 "+%m月%d日 %H:%M:%S"
 }
-
 
 # 获取上一次错误
 function LastError() {
@@ -43,10 +39,9 @@ function LastError() {
     echo ${SQLrequest} | sed  "s/value\|clock//g"
 }
 
-# 获取站点状态
 function LastCode() {
     ItemID=$(expr $1 + 4)
-    SelectSQL=$(printf "USE zabbix;SELECT value FROM history_uint h WHERE h.itemid='%s' ORDER BY h.clock LIMIT %s,1;"  ${ItemID} $2)
+    SelectSQL=$(printf "USE zabbix;SELECT value FROM history_uint h WHERE h.itemid='%s' ORDER BY h.clock DESC LIMIT 1;"  ${ItemID})
     SQLrequest=$(echo ${SelectSQL} |${SQL} )
     echo ${SQLrequest} | sed "s/value//g"
 }
@@ -87,11 +82,10 @@ function iqMysql(){
     lasterror=$(LastError ${ItemID} 1)
     lasterrorTime=$(echo ${lasterror} |awk '{print $(NF)}')
     lasterrorText=$(echo ${lasterror%%${lasterrorTime}*} )
-    lastcode=$(LastCode ${ItemID} 1)
+    lastcode=$(LastCode ${ItemID})
     Text=$(text $1 "${lastcode}" "${lasterrorText}" "$(printTime ${lasterrorTime})")
     echo ${Text}
 }
-
 
 if [ ${TriggerStatus} == "OK" ]
 then
