@@ -1,0 +1,168 @@
+docker_status(){
+    local name=$1
+    $(docker ps |grep -q ${name}) && echo ${name} || echo 0
+}
+
+ZABBIX_WEB="zabbix-web"
+ZABBIX_SERVER="zabbix-server"
+ZABBIX_SERVER_STATUS=$(docker_status ${ZABBIX_SERVER})
+ZABBIX_WEB_STATUS=$(docker_status ${ZABBIX_WEB})
+
+# Zabbix Server Config
+DB_HOST=""
+DB_USER=""
+DB_PASSWD=""
+ZABBIX_DEBUG="3"
+ZABBIX_ALERTSCRIPTS=""
+ZABBIX_SERVER_COMPONENT=""
+ZABBIX_SERVER_IMAGE=""
+
+
+# Zabbix Web Config
+ZABBIX_WEB_STYLES=""
+ZABBIX_WEB_IMAGE=""
+ZABBIX_WEB_COMPONENT="" 
+
+
+get_dockerIP(){
+    local name=$1
+    ip=$(docker inspect ${name} |grep "\"IPAddress" |awk '{print $2}'|sed 's/,//')
+    echo ${ip//\"/}
+}
+
+start_server(){
+    local name=$1
+    if [ "${name}" = "${ZABBIX_SERVER}" ]
+    then
+        docker run --name ${ZABBIX_SERVER} \
+            -e DB_SERVER_HOST="${DB_HOST}" \
+            -e MYSQL_USER="${DB_USER}" \
+            -e MYSQL_PASSWORD="${DB_PASSWD}" \
+            -e ZBX_DEBUGLEVEL="${ZABBIX_DEBUG}" \
+            -v ${ZABBIX_ALERTSCRIPTS}:/usr/lib/zabbix/alertscripts \
+            -v ${ZABBIX_SERVER_COMPONENT}:/run_zabbix_component.sh \
+            -v /etc/localtime:/etc/localtime \
+            -p 10051:10051 \
+            -d ${ZABBIX_SERVER_IMAGE}
+    elif [ "${name}" = "${ZABBIX_WEB}" ]
+    then
+        docker run --name ${ZABBIX_WEB} \
+            --link ${ZABBIX_SERVER}:${ZABBIX_SERVER} \
+            -e DB_SERVER_HOST="${DB_HOST}" \
+            -e MYSQL_USER="${DB_USER}" \
+            -e MYSQL_PASSWORD="${DB_PASSWD}" \
+            -e ZBX_SERVER_HOST=zabbix-server  \
+            -e PHP_TZ="Asia/Shanghai" \
+            -v ${ZABBIX_WEB_STYLES}:/usr/share/zabbix/styles \
+            -v ${ZABBIX_WEB_COMPONENT}:/run_zabbix_component.sh \
+            -v /etc/localtime:/etc/localtime \
+            -p 80:80 \
+            -d ${ZABBIX_WEB_IMAGE}
+    else
+        echo "** Start Server Error: ${name} Nofound !!!"
+    fi
+}
+
+
+
+
+docker_stop(){
+    local name=$1
+    if [ "$(docker_status ${name})" = 0 ]
+    then
+        echo "** ${name} Nofound ..."
+    else
+        echo "** Stop ${name} now ..."
+        docker stop ${name}
+        echo "** Remove ${name} now ..."
+        docker rm ${name}
+    fi    
+}
+
+docker_start(){
+    local name=$1
+    if [ "$(docker_status ${name})" = 0 ]
+    then
+       echo "**  Start ${name} ..."
+       start_server ${name}
+    fi 
+    echo "**    ${name} is running..."
+}
+
+get_status(){
+    local name=$1
+    local STATUS=$(docker_status ${name})
+    if [ "${STATUS}" = 0 ]
+    then
+        echo "**    ${name} is Not Running  ..."
+    else
+        if $(docker ps|grep  ${name}|grep -q "Up")
+        then
+            echo "**    ${name} is Running ..."
+        else
+            echo "**    ${name} status error ..."
+        fi
+    fi
+}
+
+change(){
+    echo "**    Change /etc/hosts"
+    if [ ${ZABBIX_SERVER_STATUS} != 0 ]
+    then
+        old_host_ip=$(grep ZabbixServer /etc/hosts |awk '{print $1}') 
+        new_host_ip=$(get_dockerIP ${ZABBIX_SERVER_STATUS})
+        echo "**    ${old_host_ip} to ${new_host_ip} ..."
+        sed -i "s/${old_host_ip}/${new_host_ip}/g" /etc/hosts
+    fi
+}
+
+status(){
+    get_status ${ZABBIX_SERVER}
+    get_status ${ZABBIX_WEB}
+}
+
+start(){
+    docker_start ${ZABBIX_SERVER}
+    docker_start ${ZABBIX_WEB}
+    sleep 6
+    change
+}
+
+stop(){
+    docker_stop ${ZABBIX_SERVER}
+    docker_stop ${ZABBIX_WEB}
+}
+
+case "$1" in
+   start)
+       start
+       ;;
+   stop)
+       stop
+       ;;
+   restart)
+       stop
+       sleep 10
+       start
+       ;;
+   status)
+       status
+       ;;
+   change)
+       change
+       ;;
+   help|*)
+        echo $"Usage: $0 {start|stop|status|restart|change|help}"
+       cat <<EOF
+
+           start       - start zabbix-server/zabbix-web
+           stop        - stop zabix-server/zabbix-web
+           status      - show zabbix-server/zabbix-web stauts
+           restart     - restart zabbix-server/zabbix-web
+           change      - set docker-server host IP to /etc/hosts
+           help        - this screen
+
+EOF
+   exit 1
+   ;;
+esac
