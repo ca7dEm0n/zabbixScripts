@@ -2,66 +2,74 @@
 
 ###
 #
-# debug mode list , use 'netastat' command:
-# 'TIME_WAIT' 'CLOSE_WAIT' 'FIN_WAIT1' 'ESTABLISHED' 'SYN_RECV' 'LAST_ACK LISTEN'
+# debug mode list , use 'ss -ant' command.
 #
 # base mode use 'ss -s' command , faster than debug mode.
 #
 ###
 
-
-debug(){
-    CACHEFILE="/tmp/netstat_an_status.log"
+cache(){
+    local COMMAND=$1
+    FILENAME=$(echo ${COMMAND///}|awk -F " " '{print $1$2}')
+    CACHEFILE="/tmp/${FILENAME}"
     if [ -e ${CACHEFILE} ]
     then
         TIMEFLM=$(stat -c %Y ${CACHEFILE})
         TIMENOW=$(date +%s)
-        if [ $(expr ${TIMENOW} - ${TIMEFLM}) -le 10 ];
+        if [ $(expr ${TIMENOW} - ${TIMEFLM}) -le 5 ];
         then
-            Text=$(cat ${CACHEFILE})
+            TEXT=$(cat ${CACHEFILE})
         else
-            Text=$(netstat -an | awk '/^tcp/ {++S[$NF]} END {for(a in S) print a, S[a]}')
-            echo ${Text} > ${CACHEFILE}
+            TEXT=$(echo ${COMMAND}|sh)
+            echo ${TEXT} > ${CACHEFILE}
         fi
     else
-        Text=$(netstat -an | awk '/^tcp/ {++S[$NF]} END {for(a in S) print a, S[a]}')
-        echo ${Text} > ${CACHEFILE}
+        TEXT=$(echo ${COMMAND}|sh)
+        echo ${TEXT} > ${CACHEFILE}
     fi
-    echo ${Text}|grep -oP "(?<=$1 )\d+"
+    echo ${TEXT}
+}
+
+debug(){
+    local VALUE=$1
+    EXE=$(cache "/usr/sbin/ss -ant | grep -v State |awk '{print \$1}' |sort |uniq -c")
+    RESPONSE=$(echo ${EXE}|grep -oP "\d+ (?=${VALUE})")
+    echo ${RESPONSE:-0}
 }
 
 base(){
-    num=$(ss -s|grep -oP "(?<=$1 )\d+")
-    echo ${num:-0}
+    local VALUE=$1
+    EXE=$(cache "/usr/sbin/ss -s")
+    RESPONSE=$(echo ${EXE}|grep -oP "(?<=$1 )\d+")
+    echo ${RESPONSE:-0}
 }
 
 run(){
-    local func=$1
-    local mode="base"
-    DEBUG_MODE_LIST=('TIME_WAIT' 'CLOSE_WAIT' 'FIN_WAIT1' 'ESTABLISHED' 'SYN_RECV' 'LAST_ACK LISTEN')
-    for i in ${DEBUG_MODE_LIST[@]}
+    local FUNC=$1
+    local MODE="debug"
+    BASE_MODE_LIST=('estab' 'closed' 'orphaned' 'synrecv' 'timewait')
+    for i in ${BASE_MODE_LIST[@]}
     do
-        if [ "${i}" == "${func}" ]
-        then 
-            local mode="debug"
+        if [ "${i}" == "${FUNC}" ]
+        then
+            local MODE="base"
             break
         fi
     done
-    
-    if [ "${mode}" == "base" ]
+
+    if [ "${MODE}" == "base" ]
     then
-        request=$(base ${func})
+        RESPONSE=$(base ${FUNC})
     else
-        request=$(debug ${func})
+        RESPONSE=$(debug ${FUNC})
     fi
 
-    if [ ! -n "${func}" ]
+    if [ ! -n "${FUNC}" ]
     then
         echo 0
     else
-        echo ${request}
+        echo ${RESPONSE}
     fi
 }
-
 
 run $1
