@@ -36,7 +36,7 @@ Diff() {
 
 Down() {
     [ ! -f ${DATAFILE} ] && touch ${DATAFILE}
-    netstat -tnlp|grep -v "PID/Program"|grep -oP "(?<=:)\d+ |(?<=[0-9]/)(\S+)|-"|sed 's/ //g'|sed 'N;s/\n/:/'|sort|uniq > ${DATAFILE}
+    ss -pltun  |grep -oP "(?<=:)(\d+ ).*"| awk '{if ($3=="")print $1 ":null";else print $1":"$3}'|sed 's/users:(("//g'|sed 's/",.*//g'| sort|uniq > ${DATAFILE}
     chown zabbix. ${DATAFILE}
     chmod 640 ${DATAFILE}
 }
